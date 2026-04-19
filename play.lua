@@ -1,23 +1,10 @@
--- play.lua - Advanced Music Player for ComputerCraft
--- Использование: play /folder [-loop] [-shuffle] [-monitor|-computer|-both]
+-- play.lua - Fixed Music Player (надёжный поиск файлов)
 
 local args = {...}
 
 if #args == 0 then
-    print("Usage:")
-    print("  play /folder                   -- play all .dfpwm files")
-    print("  play /folder -shuffle          -- random order")
-    print("  play /folder -loop             -- loop playlist")
-    print("  play /folder -loop -shuffle    -- loop + shuffle")
-    print("  play /folder -monitor          -- show only on monitor")
-    print("  play /folder -both             -- show on both computer and monitor")
-    print("")
-    print("Controls during playback:")
-    print("  →   Next song")
-    print("  ←   Previous song")
-    print("  P   Pause / Resume")
-    print("  R   Restart current song")
-    print("  Q   Quit")
+    print("Usage: play /folder [-loop] [-shuffle] [-monitor|-computer|-both]")
+    print("Controls: → Next | ← Prev | P Pause | R Restart | Q Quit")
     return
 end
 
@@ -27,44 +14,20 @@ local speakers = {}
 local playlist = {}
 local isLoop = false
 local isShuffle = false
-local displayMode = "both"   -- both, computer, monitor
+local displayMode = "both"
 
 local folderPath = nil
 
--- Обработка флагов
 for i = #args, 1, -1 do
     local a = args[i]:lower()
-    if a == "-loop" then
-        isLoop = true
-        table.remove(args, i)
-    elseif a == "-shuffle" then
-        isShuffle = true
-        table.remove(args, i)
-    elseif a == "-monitor" then
-        displayMode = "monitor"
-        table.remove(args, i)
-    elseif a == "-computer" then
-        displayMode = "computer"
-        table.remove(args, i)
-    elseif a == "-both" then
-        displayMode = "both"
-        table.remove(args, i)
+    if a == "-loop" then isLoop = true; table.remove(args, i)
+    elseif a == "-shuffle" then isShuffle = true; table.remove(args, i)
+    elseif a == "-monitor" then displayMode = "monitor"; table.remove(args, i)
+    elseif a == "-computer" then displayMode = "computer"; table.remove(args, i)
+    elseif a == "-both" then displayMode = "both"; table.remove(args, i)
     end
 end
 
--- Спикеры (если указаны)
-for i = 1, #args do
-    local arg = args[i]
-    if peripheral.isPresent(arg) and peripheral.getType(arg) == "speaker" then
-        local sp = peripheral.wrap(arg)
-        if sp then table.insert(speakers, sp) end
-    else
-        folderPath = arg
-        break
-    end
-end
-
--- Если спикеры не указаны — берём все
 if #speakers == 0 then
     speakers = { peripheral.find("speaker") }
     if #speakers == 0 then
@@ -73,58 +36,72 @@ if #speakers == 0 then
     end
 end
 
+folderPath = args[#args]  -- последний аргумент = путь
+
 if not folderPath or folderPath:sub(1,1) ~= "/" then
-    print("Error: Please specify a folder (example: /songs)")
+    print("Error: Specify folder, example: play /songs")
     return
 end
 
--- ====================== ЗАГРУЗКА ПЛЕЙЛИСТА ======================
+-- ====================== ЗАГРУЗКА ПЛЕЙЛИСТА (ИСПРАВЛЕНО) ======================
 
 if not fs.exists(folderPath) or not fs.isDir(folderPath) then
     print("Error: Folder '" .. folderPath .. "' not found!")
     return
 end
 
+print("Scanning folder: " .. folderPath)
+
 local files = fs.list(folderPath)
-for _, file in ipairs(files) do
-    if file:lower():sub(-5) == ".dfpwm" then
-        table.insert(playlist, fs.combine(folderPath, file))
+local foundCount = 0
+
+for _, filename in ipairs(files) do
+    local lowerName = filename:lower()
+    if lowerName:sub(-5) == ".dfpwm" then
+        local fullPath = fs.combine(folderPath, filename)
+        table.insert(playlist, fullPath)
+        foundCount = foundCount + 1
+        print("  + " .. filename)
+    elseif lowerName:sub(-4) == ".mp3" then
+        print("  ! MP3 found: " .. filename .. " (convert to .dfpwm manually)")
     end
 end
 
+print("Found " .. foundCount .. " .dfpwm file(s)")
+
 if #playlist == 0 then
     print("Error: No .dfpwm files found in " .. folderPath)
+    print("Make sure files end with .dfpwm (lowercase or uppercase)")
     return
 end
 
+-- ====================== ШАФЛ ======================
+
 if isShuffle then
+    print("Shuffling playlist...")
     for i = #playlist, 2, -1 do
         local j = math.random(i)
         playlist[i], playlist[j] = playlist[j], playlist[i]
     end
 end
 
--- ====================== МОНИТОР ======================
+-- ====================== ОСТАЛЬНОЙ КОД (интерфейс + воспроизведение) ======================
 
 local monitor = peripheral.find("monitor")
-if monitor then
-    monitor.setTextScale(1)
-end
+if monitor then monitor.setTextScale(1) end
 
 local function drawDisplay(currentIndex, paused)
-    local currentFile = playlist[currentIndex]
+    local curr = playlist[currentIndex]
     local nextFile = playlist[currentIndex % #playlist + 1]
 
-    local currName = fs.getName(currentFile)
+    local currName = fs.getName(curr)
     local nextName = nextFile and fs.getName(nextFile) or "—"
 
-    -- Computer
     if displayMode == "computer" or displayMode == "both" then
         term.clear()
-        term.setCursorPos(1, 1)
+        term.setCursorPos(1,1)
         term.setTextColor(colors.cyan)
         print("=== MUSIC PLAYER ===")
-
         term.setTextColor(colors.yellow)
         print("\nNOW PLAYING:")
         term.setTextColor(colors.white)
@@ -139,42 +116,25 @@ local function drawDisplay(currentIndex, paused)
         if paused then print("  [PAUSED]") end
     end
 
-    -- Monitor
     if (displayMode == "monitor" or displayMode == "both") and monitor then
         monitor.clear()
-        monitor.setCursorPos(2, 2)
+        monitor.setCursorPos(2,2)
         monitor.setTextColor(colors.cyan)
         monitor.write("=== MUSIC PLAYER ===")
-
-        monitor.setCursorPos(2, 4)
+        monitor.setCursorPos(2,4)
         monitor.setTextColor(colors.yellow)
         monitor.write("NOW PLAYING:")
-        monitor.setCursorPos(2, 5)
+        monitor.setCursorPos(2,5)
         monitor.setTextColor(colors.white)
         monitor.write(currName)
 
-        monitor.setCursorPos(2, 7)
+        monitor.setCursorPos(2,7)
         monitor.setTextColor(colors.lightGray)
         monitor.write("NEXT:")
-        monitor.setCursorPos(2, 8)
+        monitor.setCursorPos(2,8)
         monitor.write(nextName)
-
-        if isLoop then
-            monitor.setCursorPos(2, 10)
-            monitor.write("[LOOP]")
-        end
-        if isShuffle then
-            monitor.setCursorPos(2, 11)
-            monitor.write("[SHUFFLE]")
-        end
-        if paused then
-            monitor.setCursorPos(2, 12)
-            monitor.write("[PAUSED]")
-        end
     end
 end
-
--- ====================== ВОСПРОИЗВЕДЕНИЕ ======================
 
 local dfpwm = require("cc.audio.dfpwm")
 local decoder = dfpwm.make_decoder()
@@ -192,13 +152,7 @@ local function playSong(index)
     for _, speaker in ipairs(speakers) do
         table.insert(functions, function()
             for pos = 1, #audioData, 16384 do
-                while paused do
-                    local ev = {os.pullEvent("key")}
-                    if ev[1] == "key" and ev[2] == keys.p then
-                        paused = false
-                        drawDisplay(index, false)
-                    end
-                end
+                while paused do os.pullEvent("key") end
 
                 local chunk = audioData:sub(pos, pos + 16383)
                 local buffer = decoder(chunk)
@@ -221,8 +175,6 @@ local function playSong(index)
                     term.setTextColor(colors.white)
                     term.write("] " .. math.floor(progress*100) .. "%")
                 end
-
-                drawDisplay(index, paused)
             end
         end)
     end
@@ -232,7 +184,7 @@ end
 
 -- ====================== ГЛАВНЫЙ ЦИКЛ ======================
 
-print("Starting music player... Controls: → ← P R Q")
+print("Starting playback...")
 
 local currentIndex = 1
 
@@ -241,8 +193,8 @@ repeat
         currentIndex = i
         playSong(i)
 
-        local event, key = os.pullEvent(0.1)
-        if event == "key" then
+        local ev, key = os.pullEvent(0.1)
+        if ev == "key" then
             if key == keys.q then
                 term.clear()
                 term.setCursorPos(1,1)
@@ -250,15 +202,13 @@ repeat
                 if monitor then monitor.clear() end
                 return
             elseif key == keys.right then
-                -- next
+                -- next song
             elseif key == keys.left then
                 currentIndex = i - 1
                 if currentIndex < 1 then currentIndex = #playlist end
                 break
             elseif key == keys.r then
                 i = i - 1
-            elseif key == keys.p then
-                -- pause будет обработан внутри playSong
             end
         end
     end
@@ -269,9 +219,7 @@ repeat
             playlist[j], playlist[k] = playlist[k], playlist[j]
         end
     end
-
     currentIndex = 1
-
 until not isLoop
 
 term.clear()
