@@ -1,4 +1,4 @@
--- play.lua - Fixed Music Player (надёжный поиск файлов)
+-- play.lua - Fixed Music Player (correct .dfpwm detection)
 
 local args = {...}
 
@@ -20,11 +20,21 @@ local folderPath = nil
 
 for i = #args, 1, -1 do
     local a = args[i]:lower()
-    if a == "-loop" then isLoop = true; table.remove(args, i)
-    elseif a == "-shuffle" then isShuffle = true; table.remove(args, i)
-    elseif a == "-monitor" then displayMode = "monitor"; table.remove(args, i)
-    elseif a == "-computer" then displayMode = "computer"; table.remove(args, i)
-    elseif a == "-both" then displayMode = "both"; table.remove(args, i)
+    if a == "-loop" then 
+        isLoop = true
+        table.remove(args, i)
+    elseif a == "-shuffle" then 
+        isShuffle = true
+        table.remove(args, i)
+    elseif a == "-monitor" then 
+        displayMode = "monitor"
+        table.remove(args, i)
+    elseif a == "-computer" then 
+        displayMode = "computer"
+        table.remove(args, i)
+    elseif a == "-both" then 
+        displayMode = "both"
+        table.remove(args, i)
     end
 end
 
@@ -36,10 +46,10 @@ if #speakers == 0 then
     end
 end
 
-folderPath = args[#args]  -- последний аргумент = путь
+folderPath = args[#args]
 
 if not folderPath or folderPath:sub(1,1) ~= "/" then
-    print("Error: Specify folder, example: play /songs")
+    print("Error: Specify folder. Example: play /songs")
     return
 end
 
@@ -57,23 +67,34 @@ local foundCount = 0
 
 for _, filename in ipairs(files) do
     local lowerName = filename:lower()
-    if lowerName:sub(-5) == ".dfpwm" then
+    
+    -- Правильная проверка расширения .dfpwm (6 символов)
+    if lowerName:sub(-6) == ".dfpwm" then
         local fullPath = fs.combine(folderPath, filename)
         table.insert(playlist, fullPath)
         foundCount = foundCount + 1
-        print("  + " .. filename)
+        print("  + Found: " .. filename)
     elseif lowerName:sub(-4) == ".mp3" then
-        print("  ! MP3 found: " .. filename .. " (convert to .dfpwm manually)")
+        print("  ! MP3 found: " .. filename .. " (needs conversion to .dfpwm)")
+    else
+        print("  - Ignored: " .. filename)
     end
 end
 
-print("Found " .. foundCount .. " .dfpwm file(s)")
+print("Total .dfpwm files found: " .. foundCount)
 
 if #playlist == 0 then
     print("Error: No .dfpwm files found in " .. folderPath)
-    print("Make sure files end with .dfpwm (lowercase or uppercase)")
+    print("Make sure the files really end with '.dfpwm'")
+    print("Current files in folder:")
+    local list = fs.list(folderPath)
+    for _, f in ipairs(list) do
+        print("   " .. f)
+    end
     return
 end
+
+print("Starting playlist with " .. #playlist .. " song(s)...")
 
 -- ====================== ШАФЛ ======================
 
@@ -85,16 +106,17 @@ if isShuffle then
     end
 end
 
--- ====================== ОСТАЛЬНОЙ КОД (интерфейс + воспроизведение) ======================
+-- ====================== ИНТЕРФЕЙС И ВОСПРОИЗВЕДЕНИЕ ======================
 
 local monitor = peripheral.find("monitor")
 if monitor then monitor.setTextScale(1) end
 
 local function drawDisplay(currentIndex, paused)
-    local curr = playlist[currentIndex]
-    local nextFile = playlist[currentIndex % #playlist + 1]
+    local currFile = playlist[currentIndex]
+    local nextIndex = currentIndex % #playlist + 1
+    local nextFile = playlist[nextIndex]
 
-    local currName = fs.getName(curr)
+    local currName = fs.getName(currFile)
     local nextName = nextFile and fs.getName(nextFile) or "—"
 
     if displayMode == "computer" or displayMode == "both" then
@@ -152,7 +174,9 @@ local function playSong(index)
     for _, speaker in ipairs(speakers) do
         table.insert(functions, function()
             for pos = 1, #audioData, 16384 do
-                while paused do os.pullEvent("key") end
+                while paused do
+                    os.pullEvent("key")
+                end
 
                 local chunk = audioData:sub(pos, pos + 16383)
                 local buffer = decoder(chunk)
@@ -184,8 +208,6 @@ end
 
 -- ====================== ГЛАВНЫЙ ЦИКЛ ======================
 
-print("Starting playback...")
-
 local currentIndex = 1
 
 repeat
@@ -202,7 +224,7 @@ repeat
                 if monitor then monitor.clear() end
                 return
             elseif key == keys.right then
-                -- next song
+                -- next
             elseif key == keys.left then
                 currentIndex = i - 1
                 if currentIndex < 1 then currentIndex = #playlist end
